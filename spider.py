@@ -1,18 +1,26 @@
 import socket
 def fetch(url):
     sock = socket.socket()
-    sock.connect(('xkcd.com', 80))
+    sock.setblocking(True)
+    try:
+        sock.connect(('xkcd.com', 80))
+    except BlockingIOError:
+        pass
+
     request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(url)
-    print (request)
-    sock.send(request.encode('ascii'))
+    encoded = request.encode('ascii')
+
+    while True:
+        try:
+            sock.send(encoded)
+            break  # Done.
+        except OSError as e:
+            pass
+
     response = b''
     chunk = sock.recv(4096)
     while chunk:
         response += chunk
-        print(chunk)
         chunk = sock.recv(4096)
 
     return response
-
-if __name__ == "__main__":
-    fetch("http://xkcd.com/1019/")
