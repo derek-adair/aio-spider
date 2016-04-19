@@ -1,6 +1,8 @@
 import socket
 from bs4 import BeautifulSoup
 from selectors import DefaultSelector, EVENT_WRITE, EVENT_READ
+from Future import Future
+from Task import Task
 selector = DefaultSelector()
 urls_todo = set(['/'])
 seen_urls = set(['/'])
@@ -27,21 +29,25 @@ class Fetcher:
         except BlockingIOError:
             pass
 
-        print (self.sock)
+        f = Future()
+
+        def on_connected(sock, mask):
+            f.set_result(None)
+
         # Register next callback.
         selector.register(self.sock.fileno(),
                           EVENT_WRITE,
-                          self.connected)
+                          on_connected)
 
-    def connected(self, key, mask):
+        yield f
         print('connected!')
-        selector.unregister(key.fd)
+        selector.unregister(self.sock.fileno())
         request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(self.url)
         urls_todo.add(self.url)
         self.sock.send(request.encode('ascii'))
 
         # Register the next callback.
-        selector.register(key.fd,
+        selector.register(self.sock.fileno(),
                           EVENT_READ,
                           self.read_response)
 
@@ -60,7 +66,8 @@ class Fetcher:
             # Python set-logic:
             for link in links.difference(seen_urls):
                 urls_todo.add(link)
-                Fetcher(link).fetch()  # <- New Fetcher.
+                Task(Fetcher(link).fetch())  # <- New Fetcher Task
+
 
             seen_urls.update(links)
             urls_todo.remove(self.url)
