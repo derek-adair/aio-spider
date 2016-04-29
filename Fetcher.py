@@ -12,7 +12,6 @@ class Fetcher:
         self.response = b''
         self.url = url
         urls_todo.add(url)
-        self.sock = None
         self.stopped = False
 
     def parse_links(self):
@@ -23,42 +22,42 @@ class Fetcher:
         return links
 
     def fetch(self):
-        self.sock = socket.socket()
-        self.sock.setblocking(False)
+        sock = socket.socket()
+        sock.setblocking(False)
         try:
-            self.sock.connect(('xkcd.com', 80))
+            sock.connect(('xkcd.com', 80))
         except BlockingIOError:
             pass
 
         f = Future()
 
-        def on_connected(sock, mask):
+        def on_connected(sel, mask):
             f.set_result(None)
 
         # Register next callback.
-        selector.register(self.sock.fileno(),
+        selector.register(sock.fileno(),
                           EVENT_WRITE,
                           on_connected)
 
         yield f
         print('connected!')
-        selector.unregister(self.sock.fileno())
+        selector.unregister(sock.fileno())
         request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(self.url)
-        self.sock.send(request.encode('ascii'))
+        sock.send(request.encode('ascii'))
 
         while True:
             # Register the next callback.
 
             f2 = Future()
-            def on_readable(sock, mask):
-                f2.set_result(self.sock.recv(4096))
+            def on_readable(sel,mask):
+                f2.set_result(sock.recv(4096))
 
 
-            selector.register(self.sock.fileno(),
+            selector.register(sock.fileno(),
                               EVENT_READ,
                               on_readable)
             chunk = yield f2
-            selector.unregister(self.sock.fileno())  # Done reading.
+            selector.unregister(sock.fileno())  # Done reading.
             if chunk:
                 self.response += chunk
             else:
