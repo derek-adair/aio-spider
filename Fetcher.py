@@ -21,6 +21,7 @@ class Fetcher:
             links.add(link.get('href'))
         return links
 
+
     def fetch(self):
         sock = socket.socket()
         sock.setblocking(False)
@@ -45,41 +46,26 @@ class Fetcher:
         request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(self.url)
         sock.send(request.encode('ascii'))
 
-        while True:
-            # Register the next callback.
+        self.response = yield from read_all(sock)
 
-            f2 = Future()
-            def on_readable(sel,mask):
-                f2.set_result(sock.recv(4096))
+        links = self.parse_links()
 
-
-            selector.register(sock.fileno(),
-                              EVENT_READ,
-                              on_readable)
-            chunk = yield f2
-            selector.unregister(sock.fileno())  # Done reading.
-            if chunk:
-                self.response += chunk
-            else:
-                links = self.parse_links()
-
-                print("~~~~~~~~~~~~~~~~~~~RESPONSE~~~~~~~~~~~~~~~~~~~~~~")
-                print(self.response)
-                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-                # Python set-logic:
-                for link in links.difference(seen_urls):
-                    urls_todo.add(link)
-                    Task(Fetcher(link).fetch())  # <- New Fetcher Task
+        print("~~~~~~~~~~~~~~~~~~~RESPONSE~~~~~~~~~~~~~~~~~~~~~~")
+        print(self.response)
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        # Python set-logic:
+        for link in links.difference(seen_urls):
+            urls_todo.add(link)
+            Task(Fetcher(link).fetch())  # <- New Fetcher Task
 
 
-                seen_urls.update(links)
-                try:
-                    urls_todo.remove(self.url)
-                except KeyError:
-                    pass
-                if not urls_todo:
-                    self.stopped = True
-                    break
+        seen_urls.update(links)
+        try:
+            urls_todo.remove(self.url)
+        except KeyError:
+            pass
+        if not urls_todo:
+            self.stopped = True
 
     def loop(self):
         while not self.stopped:
@@ -87,3 +73,27 @@ class Fetcher:
             for event_key, event_mask in events:
                 callback = event_key.data
                 callback(event_key, event_mask)
+
+def read(sock):
+    f = Future()
+
+    def on_readable(sel, mask):
+        f.set_result(sock.recv(4096))
+
+    selector.register(sock.fileno(), EVENT_READ, on_readable)
+
+    chunk = yield f
+
+    selector.unregister(sock.fileno())
+
+    return chunk
+
+def read_all(sock):
+    response = []
+    #Read whole response
+    chunk = yield from read(sock)
+    while chunk:
+        response.append(chunk)
+        chunk = yield from read(sock)
+
+    return b''.join(response)
