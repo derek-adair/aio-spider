@@ -12,7 +12,6 @@ class Fetcher:
         self.response = b''
         self.url = url
         urls_todo.add(url)
-        self.stopped = False
 
     def parse_links(self):
         soup = BeautifulSoup(self.response, 'html.parser')
@@ -23,6 +22,7 @@ class Fetcher:
 
 
     def fetch(self):
+        global stopped
         sock = socket.socket()
         sock.setblocking(False)
         try:
@@ -40,7 +40,7 @@ class Fetcher:
                           EVENT_WRITE,
                           on_connected)
 
-        yield f
+        yield from f
         print('connected!')
         selector.unregister(sock.fileno())
         request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(self.url)
@@ -65,14 +65,15 @@ class Fetcher:
         except KeyError:
             pass
         if not urls_todo:
-            self.stopped = True
+            stopped = True
 
-    def loop(self):
-        while not self.stopped:
-            events = selector.select()
-            for event_key, event_mask in events:
-                callback = event_key.data
-                callback(event_key, event_mask)
+stopped = False
+def loop():
+    while not stopped:
+        events = selector.select()
+        for event_key, event_mask in events:
+            callback = event_key.data
+            callback(event_key, event_mask)
 
 def read(sock):
     f = Future()
@@ -82,7 +83,7 @@ def read(sock):
 
     selector.register(sock.fileno(), EVENT_READ, on_readable)
 
-    chunk = yield f
+    chunk = yield from f
 
     selector.unregister(sock.fileno())
 

@@ -1,4 +1,8 @@
 class Future:
+    def __iter__(self):
+        # Tell task to resume me
+        yield self
+        return self.result
     def __init__(self):
         self.result = None
         self._callbacks = []
