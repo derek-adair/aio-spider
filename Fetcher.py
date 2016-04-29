@@ -11,6 +11,7 @@ class Fetcher:
     def __init__(self, url):
         self.response = b''
         self.url = url
+        urls_todo.add(url)
         self.sock = None
         self.stopped = False
 
@@ -43,36 +44,43 @@ class Fetcher:
         print('connected!')
         selector.unregister(self.sock.fileno())
         request = 'GET {} HTTP/1.0\r\nHost: xkcd.com\r\n\r\n'.format(self.url)
-        urls_todo.add(self.url)
         self.sock.send(request.encode('ascii'))
 
-        # Register the next callback.
-        selector.register(self.sock.fileno(),
-                          EVENT_READ,
-                          self.read_response)
+        while True:
+            # Register the next callback.
 
-    # Method on Fetcher class.
-    def read_response(self, key, mask):
-        chunk = self.sock.recv(4096)  # 4k chunk size.
-        if chunk:
-            self.response += chunk
-        else:
-            selector.unregister(key.fd)  # Done reading.
-            links = self.parse_links()
-
-            print("~~~~~~~~~~~~~~~~~~~RESPONSE~~~~~~~~~~~~~~~~~~~~~~")
-            print(self.response)
-            print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-            # Python set-logic:
-            for link in links.difference(seen_urls):
-                urls_todo.add(link)
-                Task(Fetcher(link).fetch())  # <- New Fetcher Task
+            f2 = Future()
+            def on_readable(sock, mask):
+                f2.set_result(self.sock.recv(4096))
 
 
-            seen_urls.update(links)
-            urls_todo.remove(self.url)
-            if not urls_todo:
-                self.stopped = True
+            selector.register(self.sock.fileno(),
+                              EVENT_READ,
+                              on_readable)
+            chunk = yield f2
+            selector.unregister(self.sock.fileno())  # Done reading.
+            if chunk:
+                self.response += chunk
+            else:
+                links = self.parse_links()
+
+                print("~~~~~~~~~~~~~~~~~~~RESPONSE~~~~~~~~~~~~~~~~~~~~~~")
+                print(self.response)
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+                # Python set-logic:
+                for link in links.difference(seen_urls):
+                    urls_todo.add(link)
+                    Task(Fetcher(link).fetch())  # <- New Fetcher Task
+
+
+                seen_urls.update(links)
+                try:
+                    urls_todo.remove(self.url)
+                except KeyError:
+                    pass
+                if not urls_todo:
+                    self.stopped = True
+                    break
 
     def loop(self):
         while not self.stopped:
